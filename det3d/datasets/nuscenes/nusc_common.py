@@ -421,17 +421,17 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
                     rad_extra_cs_recs = [nusc.get("calibrated_sensor", sd_rec["calibrated_sensor_token"]) for sd_rec in rad_extra_sd_recs]
                     rad_sweep = {
                         "radar_path": info["radar_path"],
-                        "radar_extra_paths": rad_extra_paths,
-                        "rad_sample_data_token": rad_curr_sd_rec["token"],
-                        "rad_extra_sample_data_tokens": rad_extra_sample_data_tokens,
-                        "rad_transform_matrix": None,
-                        "rad_extra_transform_matrices": [None] * len(rad_extra_sample_data_tokens),
-                        "rad_time_lag": 0,
-                        "all_cams_from_radars": info["all_cams_from_radar"],
-                        "rad_all_cams_intrinsics": info["all_cams_intrinsic_radar"],
-                        "rad_all_cams_paths": info["all_cams_path_radar"],
-                        "rad_global_from_car": nusc.get("ego_pose", rad_curr_sd_rec["ego_pose_token"]),
-                        "radar_extra_cs_recs": rad_extra_cs_recs,
+                        "extra_paths_radar": rad_extra_paths,
+                        "sample_data_token_radar": rad_curr_sd_rec["token"],
+                        "extra_sample_data_tokens_radar": rad_extra_sample_data_tokens,
+                        "transform_matrix_radar": None,
+                        "extra_transform_matrices_radar": [None] * len(rad_extra_sample_data_tokens),
+                        "time_lag_radar": 0,
+                        "cams_from_radars_radar": info["all_cams_from_radar"],
+                        "all_cams_intrinsics_radar": info["all_cams_intrinsic_radar"],
+                        "all_cams_paths_radar": info["all_cams_path_radar"],
+                        "global_from_car_radar": nusc.get("ego_pose", rad_curr_sd_rec["ego_pose_token"]),
+                        "extra_cs_recs_radar": rad_extra_cs_recs,
                     }
                     
                     if len(sweeps) != 0:
@@ -613,9 +613,9 @@ def _get_sweep_info(nusc, curr_sd_rec, ref_time, sample=None, ref_from_car=None,
         rad_extra_sd_recs = [nusc.get("sample_data", token) for token in rad_extra_sample_data_tokens]
         rad_extra_cs_recs = [nusc.get("calibrated_sensor", sd_rec["calibrated_sensor_token"]) for sd_rec in rad_extra_sd_recs]
 
-        sweep_info["rad_extra_sample_data_tokens"] = rad_extra_sample_data_tokens
-        sweep_info["radar_extra_paths"] = rad_extra_paths
-        sweep_info["radar_extra_cs_recs"] = rad_extra_cs_recs
+        sweep_info["extra_sample_data_tokens_radar"] = rad_extra_sample_data_tokens
+        sweep_info["extra_paths_radar"] = rad_extra_paths
+        sweep_info["extra_cs_recs_radar"] = rad_extra_cs_recs
 
     return sweep_info
 
