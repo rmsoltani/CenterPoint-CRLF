@@ -1,14 +1,6 @@
-import os.path as osp
-import warnings
 import numpy as np
-from functools import reduce
-
-import pycocotools.mask as maskUtils
 
 from pathlib import Path
-from copy import deepcopy
-from det3d import torchie
-from det3d.core import box_np_ops
 import pickle 
 import os 
 from ..registry import PIPELINES
@@ -68,38 +60,6 @@ def read_sweep(sweep, virtual=False):
 
     return points_sweep.T, curr_times.T
 
-def read_single_waymo(obj):
-    points_xyz = obj["lidars"]["points_xyz"]
-    points_feature = obj["lidars"]["points_feature"]
-
-    # normalize intensity 
-    points_feature[:, 0] = np.tanh(points_feature[:, 0])
-
-    points = np.concatenate([points_xyz, points_feature], axis=-1)
-    
-    return points 
-
-def read_single_waymo_sweep(sweep):
-    obj = get_obj(sweep['path'])
-
-    points_xyz = obj["lidars"]["points_xyz"]
-    points_feature = obj["lidars"]["points_feature"]
-
-    # normalize intensity 
-    points_feature[:, 0] = np.tanh(points_feature[:, 0])
-    points_sweep = np.concatenate([points_xyz, points_feature], axis=-1).T # 5 x N
-
-    nbr_points = points_sweep.shape[1]
-
-    if sweep["transform_matrix"] is not None:
-        points_sweep[:3, :] = sweep["transform_matrix"].dot( 
-            np.vstack((points_sweep[:3, :], np.ones(nbr_points)))
-        )[:3, :]
-
-    curr_times = sweep["time_lag"] * np.ones((1, points_sweep.shape[1]))
-    
-    return points_sweep.T, curr_times.T
-
 
 def get_obj(path):
     with open(path, 'rb') as f:
@@ -109,7 +69,7 @@ def get_obj(path):
 
 @PIPELINES.register_module
 class LoadPointCloudFromFile(object):
-    def __init__(self, dataset="KittiDataset", **kwargs):
+    def __init__(self, dataset="NuScenesDataset", **kwargs):
         self.type = dataset
         self.random_select = kwargs.get("random_select", False)
         self.npoints = kwargs.get("npoints", 16834)
@@ -118,67 +78,36 @@ class LoadPointCloudFromFile(object):
 
         res["type"] = self.type
 
-        if self.type == "NuScenesDataset":
-
-            nsweeps = res["lidar"]["nsweeps"]
-
-            lidar_path = Path(info["lidar_path"])
-            points = read_file(str(lidar_path), virtual=res["virtual"])
-
-            sweep_points_list = [points]
-            sweep_times_list = [np.zeros((points.shape[0], 1))]
-
-            assert (nsweeps - 1) == len(
-                info["sweeps"]
-            ), "nsweeps {} should equal to list length {}.".format(
-                nsweeps, len(info["sweeps"])
-            )
-
-            for i in np.random.choice(len(info["sweeps"]), nsweeps - 1, replace=False):
-                sweep = info["sweeps"][i]
-                points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"])
-                sweep_points_list.append(points_sweep)
-                sweep_times_list.append(times_sweep)
-
-            points = np.concatenate(sweep_points_list, axis=0)
-            times = np.concatenate(sweep_times_list, axis=0).astype(points.dtype)
-
-            res["lidar"]["points"] = points
-            res["lidar"]["times"] = times
-            res["lidar"]["combined"] = np.hstack([points, times])
-        
-        elif self.type == "WaymoDataset":
-            path = info['path']
-            nsweeps = res["lidar"]["nsweeps"]
-            obj = get_obj(path)
-            points = read_single_waymo(obj)
-            res["lidar"]["points"] = points
-
-            if nsweeps > 1: 
-                sweep_points_list = [points]
-                sweep_times_list = [np.zeros((points.shape[0], 1))]
-
-                assert (nsweeps - 1) == len(
-                    info["sweeps"]
-                ), "nsweeps {} should be equal to the list length {}.".format(
-                    nsweeps, len(info["sweeps"])
-                )
-
-                for i in range(nsweeps - 1):
-                    sweep = info["sweeps"][i]
-                    points_sweep, times_sweep = read_single_waymo_sweep(sweep)
-                    sweep_points_list.append(points_sweep)
-                    sweep_times_list.append(times_sweep)
-
-                points = np.concatenate(sweep_points_list, axis=0)
-                times = np.concatenate(sweep_times_list, axis=0).astype(points.dtype)
-
-                res["lidar"]["points"] = points
-                res["lidar"]["times"] = times
-                res["lidar"]["combined"] = np.hstack([points, times])
-        else:
+        if self.type != "NuScenesDataset":
             raise NotImplementedError
 
+        nsweeps = res["lidar"]["nsweeps"]
+
+        lidar_path = Path(info["lidar_path"])
+        points = read_file(str(lidar_path), virtual=res["virtual"])
+
+        sweep_points_list = [points]
+        sweep_times_list = [np.zeros((points.shape[0], 1))]
+
+        assert (nsweeps - 1) == len(
+            info["sweeps"]
+        ), "nsweeps {} should equal to list length {}.".format(
+            nsweeps, len(info["sweeps"])
+        )
+
+        for i in np.random.choice(len(info["sweeps"]), nsweeps - 1, replace=False):
+            sweep = info["sweeps"][i]
+            points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"])
+            sweep_points_list.append(points_sweep)
+            sweep_times_list.append(times_sweep)
+
+        points = np.concatenate(sweep_points_list, axis=0)
+        times = np.concatenate(sweep_times_list, axis=0).astype(points.dtype)
+
+        res["lidar"]["points"] = points
+        res["lidar"]["times"] = times
+        res["lidar"]["combined"] = np.hstack([points, times])
+        
         return res, info
 
 
@@ -197,11 +126,6 @@ class LoadPointCloudAnnotations(object):
                 "names": info["gt_names"],
                 "tokens": info["gt_boxes_token"],
                 "velocities": info["gt_boxes_velocity"].astype(np.float32),
-            }
-        elif res["type"] == 'WaymoDataset' and "gt_boxes" in info:
-            res["lidar"]["annotations"] = {
-                "boxes": info["gt_boxes"].astype(np.float32),
-                "names": info["gt_names"],
             }
         else:
             pass 
