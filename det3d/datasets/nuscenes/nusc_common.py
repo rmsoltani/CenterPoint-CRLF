@@ -556,6 +556,25 @@ def _get_sensor_info(nusc, sample, ref_chan):
             f"all_cams_intrinsic{postfix}": all_cams_intrinsic,
             f"all_cams_path{postfix}": all_cams_path
         }
+
+        if modality == "radar":
+            rad_ref_sd_extra_tokens = [sample["data"][chan] for chan in RADAR_CHANS if chan != ref_chan]
+            rad_ref_sd_extra_recs = [nusc.get("sample_data", token) for token in rad_ref_sd_extra_tokens]
+            rad_ref_cs_extra_recs = [nusc.get("calibrated_sensor", rec["calibrated_sensor_token"]) for rec in rad_ref_sd_extra_recs]
+            rad_ref_pose_extra_recs = [nusc.get("ego_pose", rec["ego_pose_token"]) for rec in rad_ref_sd_extra_recs]
+
+            ref_radar_extra_paths = []
+            rad_ref_extra_boxes = []
+            for path, boxes, _ in [get_sample_data(nusc, token) for token in rad_ref_sd_extra_tokens]:
+                ref_radar_extra_paths.append(path)
+                rad_ref_extra_boxes.append(boxes)
+            
+            info.update({
+                "extra_paths_radar": ref_radar_extra_paths,
+                "extra_cs_recs_radar": rad_ref_cs_extra_recs,
+                "extra_pose_recs_radar": rad_ref_pose_extra_recs,
+            })
+
         return info, ref_boxes
 
 
