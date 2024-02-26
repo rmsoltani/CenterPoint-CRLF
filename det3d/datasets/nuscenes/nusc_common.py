@@ -676,7 +676,7 @@ def create_nuscenes_infos(root_path, version="v1.0-trainval", nsweeps=10, filter
         print(f"train scene: {len(train_scenes)}, val scene: {len(val_scenes)}")
 
     train_nusc_infos, val_nusc_infos = _fill_trainval_infos(
-        nusc, train_scenes, val_scenes, test, nsweeps=nsweeps, filter_zero=filter_zero
+        nusc, train_scenes, val_scenes, test, nsweeps=nsweeps, filter_zero=filter_zero, modalities=modalities
     )
 
     suffix = base_suffix
