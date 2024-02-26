@@ -1,8 +1,11 @@
-import numpy as np
-
-from pathlib import Path
+import os
 import pickle 
-import os 
+from functools import reduce
+from pathlib import Path
+import numpy as np
+from pyquaternion import Quaternion
+from nuscenes.utils.data_classes import RadarPointCloud
+from nuscenes.utils.geometry_utils import transform_matrix
 from ..registry import PIPELINES
 
 def _dict_select(dict_, inds):
@@ -12,24 +15,17 @@ def _dict_select(dict_, inds):
         else:
             dict_[k] = v[inds]
 
-def read_file(path, tries=2, num_point_feature=4, virtual=False):
+def read_file(path, tries=2, num_point_feature=4, virtual=False, modality="lidar"):
     if virtual:
-        # WARNING: hard coded for nuScenes 
+            raise NotImplementedError()
+    
+    if modality == "lidar":
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)[:, :num_point_feature]
-        tokens = path.split('/')
-        seg_path = os.path.join(*tokens[:-2], tokens[-2]+"_VIRTUAL", tokens[-1]+'.pkl.npy')
-        data_dict = np.load(seg_path, allow_pickle=True).item()
-
-        # remove reflectance as other virtual points don't have this value  
-        virtual_points1 = data_dict['real_points'][:, [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]] 
-        virtual_points2 = data_dict['virtual_points']
-
-        points = np.concatenate([points, np.ones([points.shape[0], 15-num_point_feature])], axis=1)
-        virtual_points1 = np.concatenate([virtual_points1, np.zeros([virtual_points1.shape[0], 1])], axis=1)
-        virtual_points2 = np.concatenate([virtual_points2, -1 * np.ones([virtual_points2.shape[0], 1])], axis=1)
-        points = np.concatenate([points, virtual_points1, virtual_points2], axis=0).astype(np.float32)
-    else:
-        points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)[:, :num_point_feature]
+    elif modality == "radar":
+        rm = Quaternion(axis=(0,0,1), degrees=90).rotation_matrix
+        pc = RadarPointCloud.from_file(path)
+        pc.rotate(rm)
+        return pc.points.T
 
     return points
 
@@ -46,20 +42,56 @@ def remove_close(points, radius: float) -> None:
     return points
 
 
-def read_sweep(sweep, virtual=False):
+def read_sweep(sweep, virtual=False, modality="lidar", extend=False):
     min_distance = 1.0
-    points_sweep = read_file(str(sweep["lidar_path"]), virtual=virtual).T
+    points_sweep = read_file(str(sweep[f"{modality}_path"]), virtual=virtual, modality=modality).T
     points_sweep = remove_close(points_sweep, min_distance)
-
     nbr_points = points_sweep.shape[1]
-    if sweep["transform_matrix"] is not None:
-        points_sweep[:3, :] = sweep["transform_matrix"].dot(
+    
+    postfix = "_radar" if modality == "radar" else ""
+    
+    if sweep[f"transform_matrix{postfix}"] is not None:
+        points_sweep[:3, :] = sweep[f"transform_matrix{postfix}"].dot(
             np.vstack((points_sweep[:3, :], np.ones(nbr_points)))
         )[:3, :]
-    curr_times = sweep["time_lag"] * np.ones((1, points_sweep.shape[1]))
+
+    if modality == "radar" and extend:
+        points_sweep = np.concatenate([
+            points_sweep.T,
+            _get_extra_radar(
+                sweep["extra_paths_radar"],
+                sweep["extra_cs_recs_radar"],
+                sweep["global_from_car_radar"]
+            )
+        ]).T
+    curr_times = sweep[f"time_lag{postfix}"] * np.ones((1, points_sweep.shape[1]))
 
     return points_sweep.T, curr_times.T
 
+
+def _get_extra_radar(paths, cs_recs, pose_recs, ref_from_car=None, car_from_global=None):
+    all_points = np.empty([0, 18])
+    for path, cs_rec, pose_rec in zip(paths, cs_recs, pose_recs):
+        min_distance = 1.0
+        car_from_current = transform_matrix(cs_rec["translation"], Quaternion(cs_rec["rotation"])) if type(cs_rec) is dict else cs_rec
+        global_from_car = transform_matrix(pose_rec["translation"], Quaternion(pose_rec["rotation"])) if type(pose_rec) is dict else pose_rec
+
+        if ref_from_car is None or car_from_global is None:
+            tm = car_from_current
+        else:
+            tm = reduce(
+                np.matmul,
+                [ref_from_car, car_from_global, global_from_car, car_from_current],
+            )
+        points = read_file(path, modality="radar").T
+        points = remove_close(points, min_distance)
+        points[:3, :] = tm.dot(
+            np.vstack((points[:3, :], np.ones(points.shape[1])))
+        )[:3, :]
+
+        all_points = np.concatenate([all_points, points.T])
+
+    return all_points
 
 def get_obj(path):
     with open(path, 'rb') as f:
@@ -73,6 +105,10 @@ class LoadPointCloudFromFile(object):
         self.type = dataset
         self.random_select = kwargs.get("random_select", False)
         self.npoints = kwargs.get("npoints", 16834)
+        self.modality = kwargs.get("modality", "lidar")
+        self.extend = kwargs.get("extend", False)
+
+        assert self.modality in ["lidar", "radar"], "Invalid modality"
 
     def __call__(self, res, info):
 
@@ -81,11 +117,23 @@ class LoadPointCloudFromFile(object):
         if self.type != "NuScenesDataset":
             raise NotImplementedError
 
-        nsweeps = res["lidar"]["nsweeps"]
+        nsweeps = res[self.modality]["nsweeps"]
 
-        lidar_path = Path(info["lidar_path"])
-        points = read_file(str(lidar_path), virtual=res["virtual"])
+        sensor_path = Path(info[f"{self.modality}_path"])
+        points = read_file(str(sensor_path), virtual=res["virtual"], modality=self.modality)
 
+        if self.modality == "radar" and self.extend:
+            points = np.concatenate([
+                points, 
+                _get_extra_radar(
+                    info["extra_paths_radar"],
+                    info["extra_cs_recs_radar"],
+                    info["extra_pose_recs_radar"],
+                    ref_from_car=info["ref_from_car_radar"], 
+                    car_from_global=info["car_from_global_radar"]
+                )
+            ])
+        
         sweep_points_list = [points]
         sweep_times_list = [np.zeros((points.shape[0], 1))]
 
@@ -97,17 +145,17 @@ class LoadPointCloudFromFile(object):
 
         for i in np.random.choice(len(info["sweeps"]), nsweeps - 1, replace=False):
             sweep = info["sweeps"][i]
-            points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"])
+            points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"], modality=self.modality, extend=self.extend)
             sweep_points_list.append(points_sweep)
             sweep_times_list.append(times_sweep)
 
         points = np.concatenate(sweep_points_list, axis=0)
         times = np.concatenate(sweep_times_list, axis=0).astype(points.dtype)
 
-        res["lidar"]["points"] = points
-        res["lidar"]["times"] = times
-        res["lidar"]["combined"] = np.hstack([points, times])
-        
+        res[self.modality]["points"] = points
+        res[self.modality]["times"] = times
+        res[self.modality]["combined"] = np.hstack([points, times])
+    
         return res, info
 
 
