@@ -171,6 +171,13 @@ class NuScenesDataset(PointCloudDataset):
                 # "ground_plane": -gp[-1] if with_gp else None,
                 "annotations": None,
             },
+            "radar": {
+                "type": "radar",
+                "points": None,
+                "nsweeps": self.nsweeps,
+                # "ground_plane": -gp[-1] if with_gp else None,
+                "annotations": None,
+            },
             "metadata": {
                 "image_prefix": self._root_path,
                 "num_point_features": self._num_point_features,
