@@ -78,7 +78,7 @@ class Preprocess(object):
                 point_counts = box_np_ops.points_count_rbbox(
                     points, gt_dict["gt_boxes"]
                 )
-                mask = point_counts >= min_points_in_gt
+                mask = point_counts >= self.min_points_in_gt
                 _dict_select(gt_dict, mask)
 
             gt_boxes_mask = np.array(
