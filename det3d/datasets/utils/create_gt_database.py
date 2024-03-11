@@ -22,15 +22,28 @@ def create_groundtruth_database(
     dbinfo_path=None,
     relative_path=True,
     virtual=False,
+    modalities=["lidar"],
+    base_suffix="",
     **kwargs,
 ):
     pipeline = [
         {
             "type": "LoadPointCloudFromFile",
             "dataset": dataset_name_map[dataset_class_name],
+            "modality": "lidar",
         },
         {"type": "LoadPointCloudAnnotations", "with_bbox": True},
     ]
+    if "radar" in modalities:
+        pipeline += [
+            {
+                "type": "LoadPointCloudFromFile",
+                "dataset": dataset_name_map[dataset_class_name],
+                "modality": "radar",
+                "extend": True
+            },
+            {"type": "LidarPlusRadarFusion", "radar_feature_mask": [2,3,4]}
+        ]
 
     if "nsweeps" in kwargs:
         dataset = get_dataset(dataset_class_name)(
@@ -51,16 +64,19 @@ def create_groundtruth_database(
     root_path = Path(data_path)
 
     if dataset_class_name in ["WAYMO", "NUSC"]: 
+        suffix = base_suffix
+        suffix += "velo" if "lidar" in modalities else ""
+        suffix += "_radar" if "radar" in modalities else ""
         if db_path is None:
             if virtual:
-                db_path = root_path / f"gt_database_{nsweeps}sweeps_withvelo_virtual"
+                db_path = root_path / f"gt_database_{nsweeps}sweeps_with{suffix}_virtual"
             else:
-                db_path = root_path / f"gt_database_{nsweeps}sweeps_withvelo"
+                db_path = root_path / f"gt_database_{nsweeps}sweeps_with{suffix}"
         if dbinfo_path is None:
             if virtual:
-                dbinfo_path = root_path / f"dbinfos_train_{nsweeps}sweeps_withvelo_virtual.pkl"
+                dbinfo_path = root_path / f"dbinfos_train_{nsweeps}sweeps_with{suffix}_virtual.pkl"
             else:
-                dbinfo_path = root_path / f"dbinfos_train_{nsweeps}sweeps_withvelo.pkl"
+                dbinfo_path = root_path / f"dbinfos_train_{nsweeps}sweeps_with{suffix}.pkl"
     else:
         raise NotImplementedError()
 

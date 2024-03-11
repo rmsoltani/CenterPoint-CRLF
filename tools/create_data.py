@@ -17,7 +17,9 @@ def nuscenes_data_prep(root_path, version, nsweeps=10, filter_zero=True, virtual
             root_path,
             Path(root_path) / f"infos_train_{nsweeps:02d}sweeps_with{suffix}_filter_{filter_zero}.pkl",
             nsweeps=nsweeps,
-            virtual=virtual
+            virtual=virtual,
+            modalities=modalities,
+            base_suffix=base_suffix
         )
     
 
