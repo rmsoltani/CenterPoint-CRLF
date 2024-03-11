@@ -28,8 +28,6 @@ from det3d.datasets.registry import DATASETS
 
 @DATASETS.register_module
 class NuScenesDataset(PointCloudDataset):
-    NumPointFeatures = 5  # x, y, z, intensity, ring_index
-
     def __init__(
         self,
         info_path,
@@ -41,6 +39,7 @@ class NuScenesDataset(PointCloudDataset):
         test_mode=False,
         version="v1.0-trainval",
         load_interval=1,
+        num_point_features=5,
         **kwargs,
     ):
         self.load_interval = load_interval 
@@ -58,7 +57,7 @@ class NuScenesDataset(PointCloudDataset):
         if not hasattr(self, "_nusc_infos"):
             self.load_infos(self._info_path)
 
-        self._num_point_features = NuScenesDataset.NumPointFeatures
+        self._num_point_features = num_point_features
         self._name_mapping = general_to_detection
 
         self.virtual = kwargs.get('virtual', False)
