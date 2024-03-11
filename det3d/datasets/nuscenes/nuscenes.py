@@ -40,6 +40,7 @@ class NuScenesDataset(PointCloudDataset):
         version="v1.0-trainval",
         load_interval=1,
         num_point_features=5,
+        modalities=["lidar"],
         **kwargs,
     ):
         self.load_interval = load_interval 
@@ -66,6 +67,8 @@ class NuScenesDataset(PointCloudDataset):
 
         self.version = version
         self.eval_version = "detection_cvpr_2019"
+
+        self.modalities = modalities
 
     def reset(self):
         self.logger.info(f"re-sample {self.frac} frames from full set")
@@ -181,6 +184,7 @@ class NuScenesDataset(PointCloudDataset):
                 "image_prefix": self._root_path,
                 "num_point_features": self._num_point_features,
                 "token": info["token"],
+                "modalities": self.modalities
             },
             "calib": None,
             "cam": {},
@@ -280,8 +284,8 @@ class NuScenesDataset(PointCloudDataset):
 
         nusc_annos["meta"] = {
             "use_camera": False,
-            "use_lidar": True,
-            "use_radar": False,
+            "use_lidar": "lidar" in self.modalities,
+            "use_radar": "radar" in self.modalities,
             "use_map": False,
             "use_external": False,
         }
