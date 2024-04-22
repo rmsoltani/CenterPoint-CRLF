@@ -1,10 +1,11 @@
 import numpy as np
+from scipy.spatial import KDTree
 from ..registry import PIPELINES
 
 
 @PIPELINES.register_module
 class LidarPlusRadarFusion(object):
-    def __init__(self, radar_feature_mask=None) -> None:
+    def __init__(self, radar_feature_mask=None, max_fusion_radius=None, fusion_workers=-1) -> None:
         """
         :param radar_feature_mask: Either a list/tuple contain the indexes of the used features or a boolean mask.
         If excluded, no features will be used. (x,y,z coors do are not counted as 'features')
@@ -16,6 +17,8 @@ class LidarPlusRadarFusion(object):
         """
 
         self.radar_feature_mask = np.array([False, False, False], dtype=bool)
+        self.max_fusion_radius = max_fusion_radius
+        self.fusion_workers = fusion_workers
 
         if radar_feature_mask is not None:
             radar_feature_mask = np.array(radar_feature_mask)
@@ -51,15 +54,37 @@ class LidarPlusRadarFusion(object):
         return res, info
 
     def _get_fused_points(self, lidar_points, radar_points):
-        extended_lidar_points = np.hstack((lidar_points, np.zeros([lidar_points.shape[0], 3], dtype=np.float32)), dtype=np.float32)
 
-        radar_xyz = radar_points[:, :3]
+        radar_coords = radar_points[:, :3]
+        lidar_coords = lidar_points[:, :3]
+
         radar_features = radar_points[:, self.radar_feature_mask]
-        extended_radar_points = np.hstack((radar_xyz, np.zeros([radar_points.shape[0], 1], dtype=np.float32), radar_features), dtype=np.float32)
 
+        extended_lidar_points = np.hstack((lidar_points, np.zeros([lidar_points.shape[0], radar_features.shape[1]], dtype=np.float32)), dtype=np.float32)
+        extended_radar_points = np.hstack((radar_coords, np.zeros([radar_points.shape[0], 1], dtype=np.float32), radar_features), dtype=np.float32)
+
+        for curr, closest in self._get_closest_index(lidar_coords, radar_coords):
+            extended_lidar_points[curr, lidar_points.shape[1]:] = radar_features[closest]
 
         fused_points = np.concatenate([extended_lidar_points, extended_radar_points])
 
         return fused_points
+    
+    def _get_closest_index(self, lidar_coords, radar_coords):
+        if self.max_fusion_radius is None:
+            return
+
+        tree = KDTree(radar_coords)
+        curr = 0
+        _, indecies = tree.query(lidar_coords, k=1, distance_upper_bound=self.max_fusion_radius, workers=self.fusion_workers)
+        for i in indecies:
+            if i != tree.n:
+                rx, ry, _ = radar_coords[i]
+                lx, ly, _ = lidar_coords[i]
+                if (np.sign(rx) == np.sign(lx) and np.sign(ry) == np.sign(ly)):
+                    yield curr, i
+            curr += 1
+        
+
 
 
