@@ -42,7 +42,7 @@ def create_groundtruth_database(
                 "modality": "radar",
                 "extend": True
             },
-            {"type": "LidarPlusRadarFusion", "radar_feature_mask": [2,3,4]}
+            {"type": "LidarPlusRadarFusion", "radar_feature_mask": [2,5,6], }
         ]
 
     if "nsweeps" in kwargs:
