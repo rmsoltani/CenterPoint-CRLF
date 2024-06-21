@@ -22,9 +22,7 @@ def read_file(path, tries=2, num_point_feature=4, virtual=False, modality="lidar
     if modality == "lidar":
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)[:, :num_point_feature]
     elif modality == "radar":
-        rm = Quaternion(axis=(0,0,1), degrees=90).rotation_matrix
         pc = RadarPointCloud.from_file(path)
-        pc.rotate(rm)
         return pc.points.T
 
     return points
@@ -48,50 +46,28 @@ def read_sweep(sweep, virtual=False, modality="lidar", extend=False):
     points_sweep = remove_close(points_sweep, min_distance)
     nbr_points = points_sweep.shape[1]
     
-    postfix = "_radar" if modality == "radar" else ""
+    prefix = "radar_" if modality == "radar" else ""
     
-    if sweep[f"transform_matrix{postfix}"] is not None:
-        points_sweep[:3, :] = sweep[f"transform_matrix{postfix}"].dot(
+    if sweep[f"{prefix}transform_matrix"] is not None:
+        points_sweep[:3, :] = sweep[f"{prefix}transform_matrix"].dot(
             np.vstack((points_sweep[:3, :], np.ones(nbr_points)))
         )[:3, :]
 
     if modality == "radar" and extend:
-        points_sweep = np.concatenate([
-            points_sweep.T,
-            _get_extra_radar(
-                sweep["extra_paths_radar"],
-                sweep["extra_cs_recs_radar"],
-                sweep["global_from_car_radar"]
-            )
-        ]).T
-    curr_times = sweep[f"time_lag{postfix}"] * np.ones((1, points_sweep.shape[1]))
+        for path, tm in zip(sweep["radar_ex_paths"], sweep["radar_ex_transfrom_matrices"]):
+            if path is None or tm is None:
+                continue
+            _points_sweep = read_file(path, virtual=virtual, modality="radar").T
+            _points_sweep = remove_close(_points_sweep, min_distance)
+            _nbr_points = _points_sweep.shape[1]
+            _points_sweep[:3, :] = tm.dot(np.vstack((_points_sweep[:3, :], np.ones(_nbr_points))))[:3, :]
+            points_sweep = np.hstack([points_sweep, _points_sweep])
+
+    curr_times = sweep[f"{prefix}time_lag"] * np.ones((1, points_sweep.shape[1]))
 
     return points_sweep.T, curr_times.T
 
 
-def _get_extra_radar(paths, cs_recs, pose_recs, ref_from_car=None, car_from_global=None):
-    all_points = np.empty([0, 18])
-    for path, cs_rec, pose_rec in zip(paths, cs_recs, pose_recs):
-        min_distance = 1.0
-        car_from_current = transform_matrix(cs_rec["translation"], Quaternion(cs_rec["rotation"])) if type(cs_rec) is dict else cs_rec
-        global_from_car = transform_matrix(pose_rec["translation"], Quaternion(pose_rec["rotation"])) if type(pose_rec) is dict else pose_rec
-
-        if ref_from_car is None or car_from_global is None:
-            tm = car_from_current
-        else:
-            tm = reduce(
-                np.matmul,
-                [ref_from_car, car_from_global, global_from_car, car_from_current],
-            )
-        points = read_file(path, modality="radar").T
-        points = remove_close(points, min_distance)
-        points[:3, :] = tm.dot(
-            np.vstack((points[:3, :], np.ones(points.shape[1])))
-        )[:3, :]
-
-        all_points = np.concatenate([all_points, points.T])
-
-    return all_points
 
 def get_obj(path):
     with open(path, 'rb') as f:
@@ -122,17 +98,13 @@ class LoadPointCloudFromFile(object):
         sensor_path = Path(info[f"{self.modality}_path"])
         points = read_file(str(sensor_path), virtual=res["virtual"], modality=self.modality)
 
-        if self.modality == "radar" and self.extend:
-            points = np.concatenate([
-                points, 
-                _get_extra_radar(
-                    info["extra_paths_radar"],
-                    info["extra_cs_recs_radar"],
-                    info["extra_pose_recs_radar"],
-                    ref_from_car=info["ref_from_car_radar"], 
-                    car_from_global=info["car_from_global_radar"]
-                )
-            ])
+        if self.modality == "radar":
+            if self.extend:
+                for radar_ex_path in info["radar_ex_paths"]:
+                    radar_ex_points = read_file(radar_ex_path, virtual=False, modality="radar")
+                    points = np.concatenate([points, radar_ex_points])
+
+
         
         sweep_points_list = [points]
         sweep_times_list = [np.zeros((points.shape[0], 1))]
@@ -145,6 +117,8 @@ class LoadPointCloudFromFile(object):
 
         for i in np.random.choice(len(info["sweeps"]), nsweeps - 1, replace=False):
             sweep = info["sweeps"][i]
+            if self.modality == "radar" and not sweep.get("radar_path"):
+                continue
             points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"], modality=self.modality, extend=self.extend)
             sweep_points_list.append(points_sweep)
             sweep_times_list.append(times_sweep)
