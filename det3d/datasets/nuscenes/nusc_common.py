@@ -365,10 +365,8 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
     for sample in tqdm(nusc.sample):
         """ Manual save info["sweeps"] """        
         # Get reference pose and timestamp
-        # ref_chan == "LIDAR_TOP"
         ref_sd_token = sample["data"][ref_chan]
-        ref_radar_sd_token = sample["data"][ref_radar_chan]
-        ref_radar_ex_sd_tokens = [sample["data"][c] for c in RADAR_CHANS[1:]]
+        ref_radar_sd_tokens = [sample["data"][c] for c in RADAR_CHANS]
 
         ref_sd_rec = nusc.get("sample_data", ref_sd_token)
         ref_cs_rec = nusc.get(
@@ -378,12 +376,11 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
         ref_time = 1e-6 * ref_sd_rec["timestamp"]
 
         ref_lidar_path, ref_boxes, _ = get_sample_data(nusc, ref_sd_token)
-        ref_radar_path, _, _ = get_sample_data(nusc, ref_radar_sd_token)
-
-        ref_radar_ex_paths = []
-        for radar_ex_token in ref_radar_ex_sd_tokens:
-            _path, _, _ = get_sample_data(nusc, radar_ex_token)
-            ref_radar_ex_paths.append(_path)
+        
+        ref_radar_paths = []
+        for radar_token in ref_radar_sd_tokens:
+            _path, _, _ = get_sample_data(nusc, radar_token)
+            ref_radar_paths.append(_path)
 
         # Homogeneous transform from ego car frame to reference frame
         ref_from_car = transform_matrix(
@@ -400,8 +397,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
         
         info = {
             "lidar_path": ref_lidar_path,
-            "radar_path": ref_radar_path,
-            "radar_ex_paths": ref_radar_ex_paths,
+            "radar_paths": ref_radar_paths,
             "token": sample["token"],
             "sweeps": [],
             "ref_from_car": ref_from_car,
@@ -410,15 +406,13 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
         }
 
         sample_data_token = sample["data"][chan]
-        radar_sample_data_token = sample["data"][radar_chan]
-        radar_ex_sample_data_tokens = [sample["data"][c] for c in RADAR_CHANS[1:]]
+        radar_sample_data_tokens = [sample["data"][c] for c in RADAR_CHANS]
 
         curr_sd_rec = nusc.get("sample_data", sample_data_token)
-        radar_curr_sd_rec = nusc.get("sample_data", radar_sample_data_token)
-        radar_ex_curr_sd_recs = [nusc.get("sample_data", token) for token in radar_ex_sample_data_tokens]
-
+        radar_curr_sd_recs = [nusc.get("sample_data", token) for token in radar_sample_data_tokens]
+        
         sweeps = []
-        for _ in range(nsweeps - 1):
+        for s in range(nsweeps - 1):
             if curr_sd_rec["prev"] == "":
                 if len(sweeps) == 0:
                     sweep = {
@@ -469,114 +463,66 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
                 }
                 # sweeps.append(sweep)
 
-            if radar_curr_sd_rec["prev"] == "":
+            if any(rec["prev"] == "" for rec in radar_curr_sd_recs):
                 if len(sweeps) == 0:
-                    sweep["radar_path"] = ref_radar_path
-                    sweep["radar_ex_paths"] = ref_radar_ex_paths
-                    sweep["radar_sample_data_token"] = radar_sample_data_token
-                    sweep["radar_ex_sample_data_tokens"] = radar_ex_sample_data_tokens
-                    sweep["radar_transform_matrix"] = None
-                    sweep["radar_ex_transfrom_matrices"] = [None for _ in RADAR_CHANS[1:]]
-                    sweep["radar_time_lag"] = 0
-                    sweep["radar_ex_time_lags"] = [0 for _ in RADAR_CHANS[1:]]
+                    sweep["radar_paths"] = ref_radar_paths
+                    sweep["radar_sample_data_tokens"] = radar_sample_data_tokens
+                    sweep["radar_transfrom_matrices"] = [None for _ in RADAR_CHANS]
+                    sweep["radar_time_lags"] = [0 for _ in RADAR_CHANS]
                 else:
-                    sweep["radar_path"] = sweeps[-1]["radar_path"]
-                    sweep["radar_ex_paths"] = sweeps[-1]["radar_ex_paths"]
-                    sweep["radar_sample_data_token"] = sweeps[-1]["radar_sample_data_token"]
-                    sweep["radar_ex_sample_data_tokens"] = sweeps[-1]["radar_ex_sample_data_tokens"]
-                    sweep["radar_transform_matrix"] = sweeps[-1]["radar_transform_matrix"]
-                    sweep["radar_ex_transfrom_matrices"] = sweeps[-1]["radar_ex_transfrom_matrices"]
-                    sweep["radar_time_lag"] = sweeps[-1]["radar_time_lag"]
-                    sweep["radar_ex_time_lags"] = sweeps[-1]["radar_ex_time_lags"]
-
+                    sweep["radar_paths"] = sweeps[-1]["radar_paths"]
+                    sweep["radar_sample_data_tokens"] = sweeps[-1]["radar_sample_data_tokens"]
+                    sweep["radar_transfrom_matrices"] = sweeps[-1]["radar_transfrom_matrices"]
+                    sweep["radar_time_lags"] = sweeps[-1]["radar_time_lags"]
             else:
-                prev = nusc.get("sample_data", radar_curr_sd_rec["prev"])
-                if prev["sample_token"] == radar_curr_sd_rec["sample_token"]:
-                    radar_curr_sd_rec = prev
-                    radar_ex_curr_sd_recs = [
-                        nusc.get("sample_data", radar_ex["prev"]) if radar_ex is not None and radar_ex["prev"] != "" else None 
-                        for radar_ex in radar_ex_curr_sd_recs
-                    ]
+                prevs = [nusc.get("sample_data", rec["prev"]) for rec in radar_curr_sd_recs]
+                if nsweeps == 10:
+                    if s % 2 != 0:
+                        radar_curr_sd_recs = prevs
+                else:
+                    radar_curr_sd_recs = prevs
+
+                # Get past pose
+                radar_current_pose_recs = [nusc.get("ego_pose", rec["ego_pose_token"]) for rec in radar_curr_sd_recs]
+
+                radar_global_from_cars = [transform_matrix(
+                    recs["translation"],
+                    Quaternion(recs["rotation"]),
+                    inverse=False,
+                ) for recs in radar_current_pose_recs]
+
+                # Homogeneous transformation matrix from sensor coordinate frame to ego car frame.
+                radar_current_cs_recs = [
+                    nusc.get("calibrated_sensor", recs["calibrated_sensor_token"])
+                    for recs in radar_curr_sd_recs
+                ]
+
+                radar_car_from_currents = [transform_matrix(
+                    recs["translation"],
+                    Quaternion(recs["rotation"]),
+                    inverse=False,
+                ) for recs in radar_current_cs_recs]
+
+                radar_tms = [
+                    reduce(np.dot, [ref_from_car, car_from_global, radar_global_from_car, radar_car_from_current])
+                    for radar_global_from_car, radar_car_from_current in zip(radar_global_from_cars, radar_car_from_currents)
+                ]
+
+                radar_paths = [nusc.get_sample_data_path(recs["token"]) for recs in radar_curr_sd_recs]
+
+                radar_time_lags = [ref_time - 1e-6 * recs["timestamp"] for recs in radar_curr_sd_recs]
+
                 
-                    # Get past pose
-                    radar_current_pose_rec = nusc.get("ego_pose", radar_curr_sd_rec["ego_pose_token"])
-                    radar_ex_current_pose_recs = [
-                        nusc.get("ego_pose", radar_ex["ego_pose_token"]) if radar_ex is not None else None
-                        for radar_ex in radar_ex_curr_sd_recs
-                    ]
+                sweep["radar_paths"] = radar_paths
+                sweep["radar_sample_data_tokens"] = [recs["token"] for recs in radar_curr_sd_recs]
+                sweep["radar_transfrom_matrices"] = radar_tms
+                sweep["radar_global_from_cars"] = radar_global_from_cars
+                sweep["radar_car_from_currents"] = radar_car_from_currents
+                sweep["radar_time_lags"] = radar_time_lags
 
-                    radar_global_from_car = transform_matrix(
-                        radar_current_pose_rec["translation"],
-                        Quaternion(radar_current_pose_rec["rotation"]),
-                        inverse=False,
-                    )
-                    radar_ex_global_from_cars = [transform_matrix(
-                        radar_ex["translation"],
-                        Quaternion(radar_ex["rotation"]),
-                        inverse=False,
-                    ) if radar_ex is not None else None 
-                    for radar_ex in radar_ex_current_pose_recs]
 
-                    # Homogeneous transformation matrix from sensor coordinate frame to ego car frame.
-                    radar_current_cs_rec = nusc.get(
-                        "calibrated_sensor", radar_curr_sd_rec["calibrated_sensor_token"]
-                    )
-                    radar_ex_current_cs_recs = [
-                        nusc.get("calibrated_sensor", radar_ex["calibrated_sensor_token"]) if radar_ex is not None else None
-                        for radar_ex in radar_ex_curr_sd_recs
-                    ]
-
-                    radar_car_from_current = transform_matrix(
-                        radar_current_cs_rec["translation"],
-                        Quaternion(radar_current_cs_rec["rotation"]),
-                        inverse=False,
-                    )
-                    radar_ex_car_from_currents = [transform_matrix(
-                        radar_ex["translation"],
-                        Quaternion(radar_ex["rotation"]),
-                        inverse=False,
-                    ) if radar_ex is not None else None 
-                    for radar_ex in radar_ex_current_cs_recs]
-
-                    radar_tm = reduce(
-                        np.dot,
-                        [ref_from_car, car_from_global, radar_global_from_car, radar_car_from_current],
-                    )
-
-                    radar_ex_tms = [
-                        reduce(np.dot, [ref_from_car, car_from_global, radar_ex_global_from_car, radar_ex_car_from_current])
-                        if radar_ex_global_from_car is not None and radar_ex_car_from_current is not None else None
-                        for radar_ex_global_from_car, radar_ex_car_from_current in zip(radar_ex_global_from_cars, radar_ex_car_from_currents)
-                    ]
-
-                    radar_path = nusc.get_sample_data_path(radar_curr_sd_rec["token"])
-                    radar_ex_paths = [
-                        nusc.get_sample_data_path(radar_ex["token"]) if radar_ex is not None else None 
-                        for radar_ex in radar_ex_curr_sd_recs
-                    ]
-
-                    radar_time_lag = ref_time - 1e-6 * radar_curr_sd_rec["timestamp"]
-                    radar_ex_time_lags = [
-                        (ref_time - 1e-6 * radar_ex["timestamp"]) if radar_ex is not None else None 
-                        for radar_ex in radar_ex_curr_sd_recs
-                    ]
-
-                    
-                    sweep["radar_path"] = radar_path
-                    sweep["radar_ex_paths"] = radar_ex_paths
-                    sweep["radar_sample_data_token"] = radar_curr_sd_rec["token"]
-                    sweep["radar_ex_sample_data_tokens"] = [radar_ex["token"] if radar_ex is not None else None for radar_ex in radar_ex_curr_sd_recs]
-                    sweep["radar_transform_matrix"] = radar_tm
-                    sweep["radar_ex_transfrom_matrices"] = radar_ex_tms
-                    sweep["radar_global_from_car"] = radar_global_from_car
-                    sweep["radar_ex_global_from_cars"] = radar_ex_global_from_cars
-                    sweep["radar_car_from_current"] = radar_car_from_current
-                    sweep["radar_ex_car_from_currents"] = radar_ex_car_from_currents
-                    sweep["radar_time_lag"] = radar_time_lag
-                    sweep["radar_ex_time_lags"] = radar_ex_time_lags
-            
             sweeps.append(sweep)
-
+            
         info["sweeps"] = sweeps
 
         assert (
@@ -621,6 +567,7 @@ def _fill_trainval_infos(nusc, train_scenes, val_scenes, test=False, nsweeps=10,
             train_nusc_infos.append(info)
         else:
             val_nusc_infos.append(info)
+
 
     return train_nusc_infos, val_nusc_infos
 

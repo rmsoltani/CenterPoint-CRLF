@@ -40,21 +40,22 @@ def remove_close(points, radius: float) -> None:
     return points
 
 
-def read_sweep(sweep, virtual=False, modality="lidar", extend=False):
+def read_sweep(sweep, virtual=False, modality="lidar"):
     min_distance = 1.0
-    points_sweep = read_file(str(sweep[f"{modality}_path"]), virtual=virtual, modality=modality).T
-    points_sweep = remove_close(points_sweep, min_distance)
-    nbr_points = points_sweep.shape[1]
+    if modality == "lidar":
+        points_sweep = read_file(str(sweep["lidar_path"]), virtual=virtual, modality="lidar").T
+        points_sweep = remove_close(points_sweep, min_distance)
+        nbr_points = points_sweep.shape[1]
     
-    prefix = "radar_" if modality == "radar" else ""
-    
-    if sweep[f"{prefix}transform_matrix"] is not None:
-        points_sweep[:3, :] = sweep[f"{prefix}transform_matrix"].dot(
-            np.vstack((points_sweep[:3, :], np.ones(nbr_points)))
-        )[:3, :]
+        if sweep["transform_matrix"] is not None:
+            points_sweep[:3, :] = sweep["transform_matrix"].dot(
+                np.vstack((points_sweep[:3, :], np.ones(nbr_points)))
+            )[:3, :]
+        curr_times = sweep["time_lag"] * np.ones((1, points_sweep.shape[1]))
 
-    if modality == "radar" and extend:
-        for path, tm in zip(sweep["radar_ex_paths"], sweep["radar_ex_transfrom_matrices"]):
+    if modality == "radar":
+        points_sweep = np.empty([18, 0])
+        for path, tm in zip(sweep["radar_paths"], sweep["radar_transfrom_matrices"]):
             if path is None or tm is None:
                 continue
             _points_sweep = read_file(path, virtual=virtual, modality="radar").T
@@ -63,7 +64,7 @@ def read_sweep(sweep, virtual=False, modality="lidar", extend=False):
             _points_sweep[:3, :] = tm.dot(np.vstack((_points_sweep[:3, :], np.ones(_nbr_points))))[:3, :]
             points_sweep = np.hstack([points_sweep, _points_sweep])
 
-    curr_times = sweep[f"{prefix}time_lag"] * np.ones((1, points_sweep.shape[1]))
+        curr_times = sweep["radar_time_lags"][0] * np.ones((1, points_sweep.shape[1]))
 
     return points_sweep.T, curr_times.T
 
@@ -82,7 +83,6 @@ class LoadPointCloudFromFile(object):
         self.random_select = kwargs.get("random_select", False)
         self.npoints = kwargs.get("npoints", 16834)
         self.modality = kwargs.get("modality", "lidar")
-        self.extend = kwargs.get("extend", False)
 
         assert self.modality in ["lidar", "radar"], "Invalid modality"
 
@@ -95,15 +95,14 @@ class LoadPointCloudFromFile(object):
 
         nsweeps = res[self.modality]["nsweeps"]
 
-        sensor_path = Path(info[f"{self.modality}_path"])
-        points = read_file(str(sensor_path), virtual=res["virtual"], modality=self.modality)
-
         if self.modality == "radar":
-            if self.extend:
-                for radar_ex_path in info["radar_ex_paths"]:
-                    radar_ex_points = read_file(radar_ex_path, virtual=False, modality="radar")
-                    points = np.concatenate([points, radar_ex_points])
-
+            points = np.empty([0, 18])
+            for radar_path in info["radar_paths"]:
+                radar_points = read_file(radar_path, virtual=False, modality="radar")
+                points = np.concatenate([points, radar_points])
+        else:
+            sensor_path = Path(info["lidar_path"])
+            points = read_file(str(sensor_path), virtual=res["virtual"], modality="lidar")
 
         
         sweep_points_list = [points]
@@ -117,9 +116,9 @@ class LoadPointCloudFromFile(object):
 
         for i in np.random.choice(len(info["sweeps"]), nsweeps - 1, replace=False):
             sweep = info["sweeps"][i]
-            if self.modality == "radar" and not sweep.get("radar_path"):
+            if self.modality == "radar" and not sweep.get("radar_paths"):
                 continue
-            points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"], modality=self.modality, extend=self.extend)
+            points_sweep, times_sweep = read_sweep(sweep, virtual=res["virtual"], modality=self.modality)
             sweep_points_list.append(points_sweep)
             sweep_times_list.append(times_sweep)
 

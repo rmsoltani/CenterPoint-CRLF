@@ -40,7 +40,6 @@ def create_groundtruth_database(
                 "type": "LoadPointCloudFromFile",
                 "dataset": dataset_name_map[dataset_class_name],
                 "modality": "radar",
-                "extend": True
             },
             {"type": "LidarPlusRadarFusion", "radar_feature_mask": [2,5,6], }
         ]
