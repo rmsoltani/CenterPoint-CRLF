@@ -5,7 +5,7 @@ from ..registry import PIPELINES
 
 @PIPELINES.register_module
 class LidarPlusRadarFusion(object):
-    def __init__(self, radar_feature_mask=None, max_fusion_radius=None, fusion_workers=-1) -> None:
+    def __init__(self, radar_feature_mask=None, max_fusion_radius=None, fusion_workers=-1, filter_unique_radar=False) -> None:
         """
         :param radar_feature_mask: Either a list/tuple contain the indexes of the used features or a boolean mask.
         If excluded, no features will be used. (x,y,z coors do are not counted as 'features')
@@ -19,6 +19,9 @@ class LidarPlusRadarFusion(object):
         self.radar_feature_mask = np.array([False, False, False], dtype=bool)
         self.max_fusion_radius = max_fusion_radius
         self.fusion_workers = fusion_workers
+        self.filter_unique_radar = filter_unique_radar
+
+        print("Filter unique:", self.filter_unique_radar)
 
         if radar_feature_mask is not None:
             radar_feature_mask = np.array(radar_feature_mask)
@@ -43,6 +46,9 @@ class LidarPlusRadarFusion(object):
         lidar_times = res["lidar"]["times"]
         radar_points = res["radar"]["points"]
         radar_times = res["radar"]["times"]
+
+        if self.filter_unique_radar:
+            radar_points, radar_times = self._get_unique_radar(radar_points, radar_times)
 
         fused_points = self._get_fused_points(lidar_points, radar_points)
         fused_times = np.concatenate([lidar_times, radar_times], dtype=np.float32)
@@ -79,12 +85,11 @@ class LidarPlusRadarFusion(object):
         _, indecies = tree.query(lidar_coords, k=1, distance_upper_bound=self.max_fusion_radius, workers=self.fusion_workers)
         for i in indecies:
             if i != tree.n:
-                rx, ry, _ = radar_coords[i]
-                lx, ly, _ = lidar_coords[i]
-                if (np.sign(rx) == np.sign(lx) and np.sign(ry) == np.sign(ly)):
-                    yield curr, i
+                yield curr, i
             curr += 1
         
-
+    def _get_unique_radar(self, radar_points, radar_times):
+        points, indexes =  np.unique(radar_points, return_index=True, axis=0)
+        return points, radar_times[indexes]
 
 
