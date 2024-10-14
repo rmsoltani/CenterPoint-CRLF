@@ -1,6 +1,6 @@
 import numpy as np
 import copy
-from track_utils import greedy_assignment
+from .track_utils import greedy_assignment
 import copy 
 import importlib
 import sys 
