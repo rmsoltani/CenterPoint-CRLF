@@ -9,7 +9,6 @@ from tqdm import tqdm
 
 dataset_name_map = {
     "NUSC": "NuScenesDataset",
-    "WAYMO": "WaymoDataset"
 }
 
 
@@ -62,7 +61,7 @@ def create_groundtruth_database(
 
     root_path = Path(data_path)
 
-    if dataset_class_name in ["WAYMO", "NUSC"]: 
+    if dataset_class_name == "NUSC": 
         suffix = base_suffix
         suffix += "velo" if "lidar" in modalities else ""
         suffix += "_radar" if "radar" in modalities else ""
@@ -99,23 +98,6 @@ def create_groundtruth_database(
         annos = sensor_data["lidar"]["annotations"]
         gt_boxes = annos["boxes"]
         names = annos["names"]
-
-        if dataset_class_name == 'WAYMO':
-            # waymo dataset contains millions of objects and it is not possible to store
-            # all of them into a single folder
-            # we randomly sample a few objects for gt augmentation
-            # We keep all cyclist as they are rare 
-            if index % 4 != 0:
-                mask = (names == 'VEHICLE') 
-                mask = np.logical_not(mask)
-                names = names[mask]
-                gt_boxes = gt_boxes[mask]
-
-            if index % 2 != 0:
-                mask = (names == 'PEDESTRIAN')
-                mask = np.logical_not(mask)
-                names = names[mask]
-                gt_boxes = gt_boxes[mask]
 
         group_dict = {}
         group_ids = np.full([gt_boxes.shape[0]], -1, dtype=np.int64)

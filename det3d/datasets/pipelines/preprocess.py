@@ -49,12 +49,7 @@ class Preprocess(object):
 
         res["mode"] = self.mode
 
-        if res["type"] in ["WaymoDataset"]:
-            if "combined" in res["lidar"]:
-                points = res["lidar"]["combined"]
-            else:
-                points = res["lidar"]["points"]
-        elif res["type"] in ["NuScenesDataset"]:
+        if res["type"] in ["NuScenesDataset"]:
             points = res["lidar"]["combined"]
         else:
             raise NotImplementedError
@@ -362,8 +357,6 @@ class AssignLabel(object):
                 if res['type'] == 'NuScenesDataset':
                     # [reg, hei, dim, vx, vy, rots, rotc]
                     anno_box = np.zeros((max_objs, 10), dtype=np.float32)
-                elif res['type'] == 'WaymoDataset':
-                    anno_box = np.zeros((max_objs, 10), dtype=np.float32) 
                 else:
                     raise NotImplementedError("Only Support nuScene for Now!")
 
@@ -413,14 +406,8 @@ class AssignLabel(object):
                             anno_box[new_idx] = np.concatenate(
                                 (ct - (x, y), z, np.log(gt_dict['gt_boxes'][idx][k][3:6]),
                                 np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
-                        elif res['type'] == 'WaymoDataset':
-                            vx, vy = gt_dict['gt_boxes'][idx][k][6:8]
-                            rot = gt_dict['gt_boxes'][idx][k][-1]
-                            anno_box[new_idx] = np.concatenate(
-                            (ct - (x, y), z, np.log(gt_dict['gt_boxes'][idx][k][3:6]),
-                            np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
                         else:
-                            raise NotImplementedError("Only Support Waymo and nuScene for Now")
+                            raise NotImplementedError("Only Support nuScenes for Now")
 
                 hms.append(hm)
                 anno_boxs.append(anno_box)
@@ -433,8 +420,6 @@ class AssignLabel(object):
             classes = merge_multi_group_label(gt_dict['gt_classes'], num_classes_by_task)
 
             if res["type"] == "NuScenesDataset":
-                gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
-            elif res['type'] == "WaymoDataset":
                 gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
             else:
                 raise NotImplementedError()
