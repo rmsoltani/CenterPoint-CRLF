@@ -1,8 +1,7 @@
 # Radar Fusion Into Lidar-Based Detection
 
-> [**Radar Fusion Into Lidar Based Detection**](https://arxiv.org/abs/2006.11275),            
+> [**Radar Fusion Into Lidar Based Detection**](),            
 > Reza Soltani, John Lee, Nathaniel Sigafoos,        
-<!-- > *arXiv technical report ([arXiv 2006.11275](https://arxiv.org/abs/2006.11275))*   -->
 
 
 <!--
@@ -15,7 +14,7 @@
 -->
 
 ## Abstract
-TODO
+Perception is one of the core concepts in autonomous driving. This involves the detection and tracking of an autonomous vehicle's (AV) surrounding objects using multiple sensors mounted to the AV. Fusing these sensors and creating multi-modality data increases metric accuracy and improves the system's robustness. This results in a more sophisticated and reliable perception system. While the topis of radar-camera fusion and lidar-camera fusion have been widely studied, the topic of radar-lidar fusion is often avoided. Those that do study it often present radar-lidar fusion as being complicated and difficult to implement properly. While this can be the case, it does not always have to be. In t his paper, we propose LiRAR, an early-fusion approach that allows for the near seamless addition of radar into models designed around lidar. We evaluate the effectiveness of this approach on the nuScenes dataset, where we show up to a 0.71% increase in mAP across all classes, achieving a score of 59.94. In addition, we analysis the strengths and weaknesses of this approach, and discuss methods that could be used to expand upon it.
 
 
 ## Main results
